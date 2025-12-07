@@ -6,6 +6,7 @@ export const INITIAL_GREETING: Message = {
   text: "You are now connected. Say hello!",
   sender: 'system',
   timestamp: Date.now(),
+  type: 'text',
 };
 
 export const STRANGER_DISCONNECTED_MSG: Message = {
@@ -13,6 +14,7 @@ export const STRANGER_DISCONNECTED_MSG: Message = {
   text: "Stranger has disconnected.",
   sender: 'system',
   timestamp: Date.now(),
+  type: 'text',
 };
 
 export const COMMON_INTERESTS = [

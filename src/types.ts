@@ -16,17 +16,22 @@ export interface UserProfile {
   location: string;
 }
 
+export type MessageType = 'text' | 'image' | 'audio';
+
 export interface Message {
   id: string;
-  text: string;
+  text?: string;
+  fileData?: string; // Base64 string for images/audio
+  type: MessageType;
   sender: 'me' | 'stranger' | 'system';
   timestamp: number;
   isVanish?: boolean;
 }
 
 export interface PeerData {
-  type: 'message' | 'typing' | 'disconnect' | 'profile';
+  type: 'message' | 'typing' | 'recording' | 'disconnect' | 'profile';
   payload?: any;
+  dataType?: MessageType;
 }
 
 // Presence state for the lobby

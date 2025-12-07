@@ -1,8 +1,8 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import Peer, { DataConnection } from 'peerjs';
-import { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
+import { RealtimeChannel } from '@supabase/supabase-js';
 import { Message, ChatMode, PeerData, PresenceState, UserProfile } from '../types';
 import { 
   INITIAL_GREETING, 
@@ -16,6 +16,7 @@ export const useHumanChat = (userProfile: UserProfile | null) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [status, setStatus] = useState<ChatMode>(ChatMode.IDLE);
   const [partnerTyping, setPartnerTyping] = useState(false);
+  const [partnerRecording, setPartnerRecording] = useState(false);
   const [partnerProfile, setPartnerProfile] = useState<UserProfile | null>(null);
   
   const peerRef = useRef<Peer | null>(null);
@@ -45,18 +46,50 @@ export const useHumanChat = (userProfile: UserProfile | null) => {
     myPeerIdRef.current = null;
     isMatchmakerRef.current = false;
     setPartnerTyping(false);
+    setPartnerRecording(false);
     setPartnerProfile(null);
   }, []);
 
   // --- MESSAGING ---
   const sendMessage = useCallback((text: string) => {
     if (connRef.current && status === ChatMode.CONNECTED) {
-      const payload: PeerData = { type: 'message', payload: text };
+      const payload: PeerData = { type: 'message', payload: text, dataType: 'text' };
       connRef.current.send(payload);
       
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
         text,
+        type: 'text',
+        sender: 'me',
+        timestamp: Date.now()
+      }]);
+    }
+  }, [status]);
+
+  const sendImage = useCallback((base64Image: string) => {
+    if (connRef.current && status === ChatMode.CONNECTED) {
+      const payload: PeerData = { type: 'message', payload: base64Image, dataType: 'image' };
+      connRef.current.send(payload);
+      
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        fileData: base64Image,
+        type: 'image',
+        sender: 'me',
+        timestamp: Date.now()
+      }]);
+    }
+  }, [status]);
+
+  const sendAudio = useCallback((base64Audio: string) => {
+    if (connRef.current && status === ChatMode.CONNECTED) {
+      const payload: PeerData = { type: 'message', payload: base64Audio, dataType: 'audio' };
+      connRef.current.send(payload);
+      
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        fileData: base64Audio,
+        type: 'audio',
         sender: 'me',
         timestamp: Date.now()
       }]);
@@ -70,24 +103,38 @@ export const useHumanChat = (userProfile: UserProfile | null) => {
     }
   }, [status]);
 
-  const sendProfile = useCallback((profile: UserProfile) => {
-    if (connRef.current) {
-        connRef.current.send({ type: 'profile', payload: profile });
+  const sendRecording = useCallback((isRecording: boolean) => {
+    if (connRef.current && status === ChatMode.CONNECTED) {
+      const payload: PeerData = { type: 'recording', payload: isRecording };
+      connRef.current.send(payload);
     }
-  }, []);
+  }, [status]);
 
   // --- PEER DATA HANDLING ---
   const handleData = useCallback((data: PeerData) => {
     if (data.type === 'message') {
       setPartnerTyping(false);
-      setMessages(prev => [...prev, {
+      setPartnerRecording(false);
+      
+      const newMessage: Message = {
         id: Date.now().toString(),
-        text: data.payload,
         sender: 'stranger',
-        timestamp: Date.now()
-      }]);
+        timestamp: Date.now(),
+        type: data.dataType || 'text'
+      };
+
+      if (data.dataType === 'image' || data.dataType === 'audio') {
+        newMessage.fileData = data.payload;
+      } else {
+        newMessage.text = data.payload;
+      }
+
+      setMessages(prev => [...prev, newMessage]);
+
     } else if (data.type === 'typing') {
       setPartnerTyping(data.payload);
+    } else if (data.type === 'recording') {
+      setPartnerRecording(data.payload);
     } else if (data.type === 'profile') {
       setPartnerProfile(data.payload);
     } else if (data.type === 'disconnect') {
@@ -144,17 +191,26 @@ export const useHumanChat = (userProfile: UserProfile | null) => {
         if (isMatchmakerRef.current || connRef.current?.open) return;
 
         const users = Object.values(newState).flat();
-        const potentialPartner = users.find(u => 
-          u.peerId !== myId && u.status === 'waiting'
-        );
+        
+        // 1. Sort users by timestamp (Oldest first)
+        const sortedWaiters = users
+          .filter(u => u.status === 'waiting')
+          .sort((a, b) => a.timestamp - b.timestamp);
 
-        if (potentialPartner) {
-          console.log("Found partner:", potentialPartner.peerId);
-          isMatchmakerRef.current = true;
-          const conn = peerRef.current?.connect(potentialPartner.peerId, { reliable: true });
-          if (conn) {
-            setupConnection(conn);
-          }
+        // 2. Identify the "Oldest Waiter"
+        const oldestWaiter = sortedWaiters[0];
+
+        // 3. If I am NOT the oldest, I call the oldest.
+        //    If I AM the oldest, I wait for someone to call me.
+        if (oldestWaiter && oldestWaiter.peerId !== myId) {
+           console.log("I am new. Calling the oldest waiter:", oldestWaiter.peerId);
+           isMatchmakerRef.current = true; // Lock matchmaking
+           const conn = peerRef.current?.connect(oldestWaiter.peerId, { reliable: true });
+           if (conn) {
+             setupConnection(conn);
+           }
+        } else {
+           console.log("I am the oldest (or alone). Waiting for a call...");
         }
       })
       .subscribe(async (status) => {
@@ -192,10 +248,13 @@ export const useHumanChat = (userProfile: UserProfile | null) => {
 
     peer.on('error', (err) => {
       console.error("Peer Error:", err);
-      setStatus(ChatMode.ERROR);
+      // If error (like ID taken or network fail), retry or show error
+      if (status !== ChatMode.CONNECTED) {
+         setStatus(ChatMode.ERROR);
+      }
     });
 
-  }, [cleanup, joinLobby, setupConnection]);
+  }, [cleanup, joinLobby, setupConnection, status]);
 
   const disconnect = useCallback(() => {
     if (connRef.current && connRef.current.open) {
@@ -214,9 +273,13 @@ export const useHumanChat = (userProfile: UserProfile | null) => {
     messages, 
     status, 
     partnerTyping,
+    partnerRecording,
     partnerProfile,
     sendMessage, 
+    sendImage,
+    sendAudio,
     sendTyping,
+    sendRecording,
     connect, 
     disconnect 
   };

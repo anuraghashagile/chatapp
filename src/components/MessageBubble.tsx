@@ -6,9 +6,10 @@ import { Flag, Smile } from 'lucide-react';
 
 interface MessageBubbleProps {
   message: Message;
+  senderName?: string;
 }
 
-export const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
+export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, senderName }) => {
   if (message.sender === 'system') {
     return (
       <div className="flex flex-col items-center gap-1 my-6 opacity-75">
@@ -23,22 +24,43 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
   }
 
   const isMe = message.sender === 'me';
+  const displayName = isMe ? 'You' : (senderName || 'Stranger');
 
   return (
     <div className={clsx("flex w-full mb-4 group", isMe ? "justify-end" : "justify-start")}>
-      <div className={clsx("flex flex-col max-w-[85%]", isMe ? "items-end" : "items-start")}>
+      <div className={clsx("flex flex-col max-w-[85%] sm:max-w-[70%]", isMe ? "items-end" : "items-start")}>
         <div className="text-[10px] text-slate-400 mb-1 px-1 font-medium uppercase">
-            {isMe ? 'You' : 'Stranger'}
+            {displayName}
         </div>
         <div 
           className={clsx(
-            "px-5 py-3 rounded-2xl text-[15px] leading-relaxed break-words shadow-sm relative transition-all",
+            "rounded-2xl shadow-sm relative transition-all overflow-hidden",
             isMe 
               ? "bg-brand-50 dark:bg-brand-600 text-slate-900 dark:text-white rounded-tr-none border border-brand-100 dark:border-brand-500" 
               : "bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white rounded-tl-none border border-slate-200 dark:border-slate-700"
           )}
         >
-          {message.text}
+          {message.type === 'text' && (
+             <div className="px-5 py-3 text-[15px] leading-relaxed break-words whitespace-pre-wrap">
+               {message.text}
+             </div>
+          )}
+
+          {message.type === 'image' && message.fileData && (
+            <div className="p-1">
+               <img 
+                 src={message.fileData} 
+                 alt="Attachment" 
+                 className="max-w-full rounded-xl max-h-[300px] object-cover"
+               />
+            </div>
+          )}
+
+          {message.type === 'audio' && message.fileData && (
+            <div className="px-3 py-2 flex items-center gap-2 min-w-[200px]">
+               <audio controls src={message.fileData} className="w-full h-8 max-w-[250px]" />
+            </div>
+          )}
         </div>
         
         {/* Actions (Only for stranger messages, visualized for demo) */}
